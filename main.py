@@ -46,4 +46,5 @@ def train():
     model.fit(train_x, train_y, epochs=10)
     model.evaluate(test_x, test_y)
 
+
 train()
