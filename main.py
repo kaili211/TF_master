@@ -97,19 +97,19 @@ def train():
                     accuracy.reset_states()
                     mean_loss.reset_states()
 
-        print(f"Epoch {epoch} terminated")
+            print(f"Epoch {epoch} terminated")
 
-        accuracy.reset_states()
-        # Measuring accuracy on the whole training set at the end of the epoch
-        for t in range(nr_batches_train):
-            start_from = t * batch_size
-            to = (t + 1) * batch_size
-            features, labels = train_x[start_from:to], train_y[start_from:to]
-            logits = model(features)
-            accuracy.update_state(labels, tf.argmax(logits, -1))
+            accuracy.reset_states()
+            # Measuring accuracy on the whole training set at the end of the epoch
+            for t in range(nr_batches_train):
+                start_from = t * batch_size
+                to = (t + 1) * batch_size
+                features, labels = train_x[start_from:to], train_y[start_from:to]
+                logits = model(features)
+                accuracy.update_state(labels, tf.argmax(logits, -1))
 
-        print(f"Training accuracy: {accuracy.result()}")
-        accuracy.reset_states()
+            print(f"Training accuracy: {accuracy.result()}")
+            accuracy.reset_states()
 
 
 train()
