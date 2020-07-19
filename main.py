@@ -54,6 +54,7 @@ def train():
     accuracy = tf.metrics.Accuracy()
     mean_loss = tf.metrics.Mean(name='loss')
 
+    @tf.function
     def train_step(inputs, labels):
         with tf.GradientTape() as tape:
             logits = model(inputs)
