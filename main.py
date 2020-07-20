@@ -6,8 +6,12 @@ import os
 output_dir = 'outputs'
 ckpt_dir_train = os.path.join(output_dir, 'ckpt/train')
 ckpt_dir_dev = os.path.join(output_dir, 'ckpt/dev')
-log_dir = os.path.join(output_dir, 'log')
+log_dir_train = os.path.join(output_dir, 'log/train')
+log_dir_dev = os.path.join(output_dir, 'log/dev')
 
+epochs = 10
+batch_size = 32
+log_every_step = 100
 
 def define_model(n_classes):
     model = tf.keras.Sequential([
@@ -62,7 +66,7 @@ def train():
 
     # 3. define loss, optimizer, ckpt, val_accuracy
     loss = tf.losses.SparseCategoricalCrossentropy(from_logits=True)
-    step = tf.Variable(1, name='global_step')
+    step = tf.Variable(0, name='global_step')
     optimizer = tf.optimizers.Adam(1e-3)
     val_accuracy = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
     train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train=ckpt_dir_train, ckpt_dir_dev=ckpt_dir_dev)
@@ -92,69 +96,70 @@ def train():
         return loss_value, accuracy.result()
 
     # 6. define training configs
-    epochs = 10
-    batch_size = 32
     nr_batches_train = int(train_x.shape[0] / batch_size)
     print(f"Batch size: {batch_size}")
     print(f"Number of batches per epoch: {nr_batches_train}")
 
     # 7. start real training
-    train_summary_writer = tf.summary.create_file_writer(log_dir)
-    with train_summary_writer.as_default():
-        for epoch in range(epochs):
-            tf.random.set_seed(step.numpy())
-            train_x = tf.random.shuffle(train_x)
-            tf.random.set_seed(step.numpy())
-            train_y = tf.random.shuffle(train_y)
+    train_summary_writer = tf.summary.create_file_writer(log_dir_train)
+    dev_summary_writer = tf.summary.create_file_writer(log_dir_dev)
+    for epoch in range(epochs):
+        tf.random.set_seed(step.numpy())
+        train_x = tf.random.shuffle(train_x)
+        tf.random.set_seed(step.numpy())
+        train_y = tf.random.shuffle(train_y)
 
-            accuracy.reset_states()
-            mean_loss.reset_states()
+        accuracy.reset_states()
+        mean_loss.reset_states()
 
-            for t in range(nr_batches_train):
-                start_from = t * batch_size
-                to = (t + 1) * batch_size
-                features, labels = train_x[start_from:to], train_y[start_from:to]
-                loss_value, accuracy_value = train_step(features, labels)
+        for t in range(nr_batches_train):
+            start_from = t * batch_size
+            to = (t + 1) * batch_size
+            features, labels = train_x[start_from:to], train_y[start_from:to]
+            loss_value, accuracy_value = train_step(features, labels)
 
-                mean_loss.update_state(loss_value)
+            mean_loss.update_state(loss_value)
 
-                if t % 1000 == 0:
-                    print(f"{step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
-                    save_path = train_manager.save()
-                    print(f"Checkpoint saved: {save_path}")
+            if t % log_every_step == 0:
+                print(f"{step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
+                save_path = train_manager.save()
+                print(f"Checkpoint saved: {save_path}")
 
+                with train_summary_writer.as_default():
                     tf.summary.image('train_set', features, max_outputs=3, step=step.numpy())
                     tf.summary.scalar('accuracy', accuracy_value, step=step.numpy())
                     tf.summary.scalar('loss', mean_loss.result(), step=step.numpy())
 
-                    accuracy.reset_states()
-                    mean_loss.reset_states()
+                accuracy.reset_states()
+                mean_loss.reset_states()
 
-            print(f"Epoch {epoch} terminated")
+        print(f"Epoch {epoch} terminated")
 
-            accuracy.reset_states()
-            mean_loss.reset_states()
-            # Measuring accuracy on the whole testing set at the end of the epoch
-            for t in range(int(test_x.shape[0] / batch_size)):
-                start_from = t * batch_size
-                to = (t + 1) * batch_size
-                features, labels = test_x[start_from:to], test_y[start_from:to]
-                loss_value, accuracy_value = train_step(features, labels, is_training=False)
-                mean_loss.update_state(loss_value)
+        accuracy.reset_states()
+        mean_loss.reset_states()
+        # Measuring accuracy on the whole testing set at the end of the epoch
+        for t in range(int(test_x.shape[0] / batch_size)):
+            start_from = t * batch_size
+            to = (t + 1) * batch_size
+            features, labels = test_x[start_from:to], test_y[start_from:to]
+            loss_value, accuracy_value = train_step(features, labels, is_training=False)
+            mean_loss.update_state(loss_value)
 
-                if t % 1000 == 0:
-                    tf.summary.scalar('val_accuracy', accuracy_value, step=step.numpy())
-                    tf.summary.scalar('val_loss', mean_loss.result(), step=step.numpy())
+            if t % log_every_step == 0:
+                print('@zkl', step.numpy())
+                with dev_summary_writer.as_default():
+                    tf.summary.scalar('accuracy', accuracy_value, step=step.numpy())
+                    tf.summary.scalar('loss', mean_loss.result(), step=step.numpy())
 
-                    accuracy.reset_states()
-                    mean_loss.reset_states()
+                accuracy.reset_states()
+                mean_loss.reset_states()
 
-            history_val_accuracy = accuracy.result()
-            print(f"Testing accuracy: {history_val_accuracy}")
-            if history_val_accuracy > val_accuracy.numpy():
-                val_accuracy.assign(history_val_accuracy)
-                save_path = val_manager.save()
-                print(f"Val Checkpoint saved: {save_path} with accuracy {val_accuracy.numpy()}")
+        history_val_accuracy = accuracy.result()
+        print(f"Testing accuracy: {history_val_accuracy}")
+        if history_val_accuracy > val_accuracy.numpy():
+            val_accuracy.assign(history_val_accuracy)
+            save_path = val_manager.save()
+            print(f"Val Checkpoint saved: {save_path} with accuracy {val_accuracy.numpy()}")
 
 
 train()
