@@ -65,7 +65,7 @@ def train():
     # 2. load data
     (train_x, train_y), (test_x, test_y) = load_data()
 
-    # 3. define loss, optimizer, ckpt, val_accuracy
+    # 3. define loss, step, optimizer, val_accuracy, ckpt
     loss = tf.losses.SparseCategoricalCrossentropy(from_logits=True)
     step = tf.Variable(0, name='global_step')
     optimizer = tf.optimizers.Adam(1e-3)
@@ -147,16 +147,12 @@ def train():
             mean_loss.update_state(loss_value)
 
             if t % log_every_step == 0:
-                print('@zkl', step.numpy())
                 with dev_summary_writer.as_default():
                     tf.summary.scalar('accuracy', accuracy_value, step=step.numpy())
                     tf.summary.scalar('loss', mean_loss.result(), step=step.numpy())
 
-                accuracy.reset_states()
-                mean_loss.reset_states()
-
         history_val_accuracy = accuracy.result()
-        print(f"Testing accuracy: {history_val_accuracy}")
+        print(f"Validation accuracy: {history_val_accuracy}, loss: {mean_loss.result()}")
         if history_val_accuracy > val_accuracy.numpy():
             val_accuracy.assign(history_val_accuracy)
             save_path = val_manager.save()
