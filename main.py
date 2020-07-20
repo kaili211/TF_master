@@ -1,17 +1,10 @@
 import tensorflow as tf
 from tensorflow.keras.datasets import fashion_mnist
-import os
+from config import Config
+import argparse
 
 
-output_dir = 'outputs'
-ckpt_dir_train = os.path.join(output_dir, 'ckpt/train')
-ckpt_dir_dev = os.path.join(output_dir, 'ckpt/dev')
-log_dir_train = os.path.join(output_dir, 'log/train')
-log_dir_dev = os.path.join(output_dir, 'log/dev')
-
-epochs = 10
-batch_size = 32
-log_every_step = 100
+config = Config(output_dir='outputs', epochs=10, batch_size=32, log_every_step=100)
 
 
 def define_model(n_classes):
@@ -58,6 +51,8 @@ def define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train, ckpt_dir_d
 
 
 def main(is_training=False):
+    batch_size = config.batch_size
+
     # 1. define model
     n_classes = 10
     model = define_model(n_classes)
@@ -73,7 +68,7 @@ def main(is_training=False):
     step = tf.Variable(0, name='global_step')
     optimizer = tf.optimizers.Adam(1e-3)
     val_accuracy = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
-    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train=ckpt_dir_train, ckpt_dir_dev=ckpt_dir_dev)
+    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train=config.ckpt_dir_train, ckpt_dir_dev=config.ckpt_dir_dev)
 
     print(f'@zkl start from step {step.numpy()} with val_accuracy {val_accuracy.numpy()}')
 
@@ -119,9 +114,9 @@ def main(is_training=False):
     print(f"Number of batches per epoch: {nr_batches_train}")
 
     # 7. start real training
-    train_summary_writer = tf.summary.create_file_writer(log_dir_train)
-    dev_summary_writer = tf.summary.create_file_writer(log_dir_dev)
-    for epoch in range(epochs):
+    train_summary_writer = tf.summary.create_file_writer(config.log_dir_train)
+    dev_summary_writer = tf.summary.create_file_writer(config.log_dir_dev)
+    for epoch in range(config.epochs):
         tf.random.set_seed(step.numpy())
         train_x = tf.random.shuffle(train_x)
         tf.random.set_seed(step.numpy())
@@ -138,7 +133,7 @@ def main(is_training=False):
 
             mean_loss.update_state(loss_value)
 
-            if t % log_every_step == 0:
+            if t % config.log_every_step == 0:
                 print(f"{step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
                 save_path = train_manager.save()
                 print(f"Checkpoint saved: {save_path}")
@@ -163,10 +158,9 @@ def main(is_training=False):
             loss_value, accuracy_value = train_step(features, labels, is_training=False)
             mean_loss.update_state(loss_value)
 
-            if t % log_every_step == 0:
-                with dev_summary_writer.as_default():
-                    tf.summary.scalar('accuracy', accuracy_value, step=step.numpy())
-                    tf.summary.scalar('loss', mean_loss.result(), step=step.numpy())
+        with dev_summary_writer.as_default():
+            tf.summary.scalar('accuracy', accuracy_value, step=step.numpy())
+            tf.summary.scalar('loss', mean_loss.result(), step=step.numpy())
 
         history_val_accuracy = accuracy.result()
         print(f"Validation accuracy: {history_val_accuracy}, loss: {mean_loss.result()}")
@@ -176,4 +170,9 @@ def main(is_training=False):
             print(f"Val Checkpoint saved: {save_path} with accuracy {val_accuracy.numpy()}")
 
 
-main(is_training=False)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-t', dest='t', action='store_true')
+    args = parser.parse_args()
+
+    main(args.t)
