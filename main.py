@@ -57,13 +57,16 @@ def define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train, ckpt_dir_d
     return train_manager, dev_manager
 
 
-def train():
+def main(is_training=False):
     # 1. define model
     n_classes = 10
     model = define_model(n_classes)
 
     # 2. load data
-    (train_x, train_y), (test_x, test_y) = load_data()
+    if is_training:
+        (train_x, train_y), (test_x, test_y) = load_data()
+    else:
+        (train_x, train_y), (test_x, test_y) = load_data()
 
     # 3. define loss, step, optimizer, val_accuracy, ckpt
     loss = tf.losses.SparseCategoricalCrossentropy(from_logits=True)
@@ -95,6 +98,20 @@ def train():
             step.assign_add(1)
 
         return loss_value, accuracy.result()
+
+    if not is_training:
+        accuracy.reset_states()
+        mean_loss.reset_states()
+
+        for t in range(int((test_x.shape[0] - 1) / batch_size) + 1):
+            start_from = t * batch_size
+            to = (t + 1) * batch_size
+            features, labels = test_x[start_from:to], test_y[start_from:to]
+            loss_value, accuracy_value = train_step(features, labels, is_training=False)
+            mean_loss.update_state(loss_value)
+
+        print(f"Test accuracy: {accuracy.result()}, loss: {mean_loss.result()}")
+        return
 
     # 6. define training configs
     nr_batches_train = int(train_x.shape[0] / batch_size)
@@ -159,4 +176,4 @@ def train():
             print(f"Val Checkpoint saved: {save_path} with accuracy {val_accuracy.numpy()}")
 
 
-train()
+main(is_training=False)
