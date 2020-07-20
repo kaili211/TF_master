@@ -13,6 +13,7 @@ epochs = 10
 batch_size = 32
 log_every_step = 100
 
+
 def define_model(n_classes):
     model = tf.keras.Sequential([
         tf.keras.layers.Conv2D(32, 5, activation=tf.nn.relu, input_shape=(28, 28, 1)),
