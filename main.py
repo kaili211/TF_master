@@ -33,27 +33,40 @@ def load_data():
     return (train_x, train_y), (test_x, test_y)
 
 
+def define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train, ckpt_dir_dev):
+    ckpt = tf.train.Checkpoint(model=model, val_accuracy=val_accuracy, optimizer=optimizer, step=step)
+    train_manager = tf.train.CheckpointManager(ckpt, ckpt_dir_train, max_to_keep=3)
+    dev_manager = tf.train.CheckpointManager(ckpt, ckpt_dir_dev, max_to_keep=3)
+    ckpt.restore(train_manager.latest_checkpoint)
+    if train_manager.latest_checkpoint:
+        print(f"Restored from {train_manager.latest_checkpoint}")
+    else:
+        print("Initializing from scratch.")
+    return train_manager, dev_manager
+
+
 def train():
+    # 1. define model
     n_classes = 10
     model = define_model(n_classes)
 
+    # 2. load data
     (train_x, train_y), (test_x, test_y) = load_data()
 
+    # 3. define loss, optimizer, ckpt, val_accuracy
     loss = tf.losses.SparseCategoricalCrossentropy(from_logits=True)
     step = tf.Variable(1, name='global_step')
     optimizer = tf.optimizers.Adam(1e-3)
+    val_accuracy = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
+    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train='./tf_ckpts', ckpt_dir_dev='./tf_ckpts/val')
 
-    ckpt = tf.train.Checkpoint(model=model, optimizer=optimizer, step=step)
-    manager = tf.train.CheckpointManager(ckpt, './tf_ckpts', max_to_keep=3)
-    ckpt.restore(manager.latest_checkpoint)
-    if manager.latest_checkpoint:
-        print(f"Restored from {manager.latest_checkpoint}")
-    else:
-        print("Initializing from scratch.")
+    print('@zkl ', step.numpy(), val_accuracy.numpy())
 
+    # 4. define metrics
     accuracy = tf.metrics.Accuracy()
     mean_loss = tf.metrics.Mean(name='loss')
 
+    # 5. define train_step
     @tf.function
     def train_step(inputs, labels):
         with tf.GradientTape() as tape:
@@ -69,15 +82,23 @@ def train():
         accuracy.update_state(labels, tf.argmax(logits, axis=-1))
         return loss_value, accuracy.result()
 
+    # 6. define training configs
     epochs = 10
     batch_size = 32
     nr_batches_train = int(train_x.shape[0] / batch_size)
     print(f"Batch size: {batch_size}")
     print(f"Number of batches per epoch: {nr_batches_train}")
 
+    # 7. start real training
     train_summary_writer = tf.summary.create_file_writer('./log/train')
     with train_summary_writer.as_default():
         for epoch in range(epochs):
+            tf.random.set_seed(step.numpy())
+            train_x = tf.random.shuffle(train_x)
+            tf.random.set_seed(step.numpy())
+            train_y = tf.random.shuffle(train_y)
+
+            nr_batches_train = 200
             for t in range(nr_batches_train):
                 start_from = t * batch_size
                 to = (t + 1) * batch_size
@@ -88,7 +109,7 @@ def train():
 
                 if t % 10 == 0:
                     print(f"{step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
-                    save_path = manager.save()
+                    save_path = train_manager.save()
                     print(f"Checkpoint saved: {save_path}")
 
                     tf.summary.image('train_set', features, max_outputs=3, step=step.numpy())
@@ -101,16 +122,29 @@ def train():
             print(f"Epoch {epoch} terminated")
 
             accuracy.reset_states()
-            # Measuring accuracy on the whole training set at the end of the epoch
-            for t in range(nr_batches_train):
+            mean_loss.reset_states()
+            # Measuring accuracy on the whole testing set at the end of the epoch
+            for t in range(int(test_x.shape[0] / batch_size)):
                 start_from = t * batch_size
                 to = (t + 1) * batch_size
-                features, labels = train_x[start_from:to], train_y[start_from:to]
+                features, labels = test_x[start_from:to], test_y[start_from:to]
                 logits = model(features)
+                loss_value = loss(labels, logits)
                 accuracy.update_state(labels, tf.argmax(logits, -1))
+                mean_loss.update_state(loss_value)
 
-            print(f"Training accuracy: {accuracy.result()}")
+            tf.summary.scalar('val_accuracy', accuracy.result(), step=step.numpy())
+            tf.summary.scalar('val_loss', mean_loss.result(), step=step.numpy())
+
+            history_val_accuracy = accuracy.result()
+            print(f"Testing accuracy: {history_val_accuracy}")
+            if history_val_accuracy > val_accuracy.numpy():
+                val_accuracy.assign(history_val_accuracy)
+                save_path = val_manager.save()
+                print(f"Val Checkpoint saved: {save_path} with accuracy {val_accuracy.numpy()}")
+
             accuracy.reset_states()
+            mean_loss.reset_states()
 
 
 train()
