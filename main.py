@@ -53,15 +53,15 @@ def define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train, ckpt_dir_d
 def main(is_training=False):
     batch_size = config.batch_size
 
-    # 1. define model
-    n_classes = 10
-    model = define_model(n_classes)
-
-    # 2. load data
+    # 1. load data
     if is_training:
         (train_x, train_y), (test_x, test_y) = load_data()
     else:
         (train_x, train_y), (test_x, test_y) = load_data()
+
+    # 2. define model
+    n_classes = 10
+    model = define_model(n_classes)
 
     # 3. define loss, step, optimizer, val_accuracy, ckpt
     loss = tf.losses.SparseCategoricalCrossentropy(from_logits=True)
