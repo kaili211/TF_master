@@ -60,7 +60,7 @@ def train():
     val_accuracy = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
     train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train='./tf_ckpts', ckpt_dir_dev='./tf_ckpts/val')
 
-    print('@zkl ', step.numpy(), val_accuracy.numpy())
+    print(f'@zkl start from step {step.numpy()} with val_accuracy {val_accuracy.numpy()}')
 
     # 4. define metrics
     accuracy = tf.metrics.Accuracy()
@@ -68,18 +68,20 @@ def train():
 
     # 5. define train_step
     @tf.function
-    def train_step(inputs, labels):
+    def train_step(inputs, labels, is_training=True):
         with tf.GradientTape() as tape:
             logits = model(inputs)
             loss_value = loss(labels, logits)
 
-        gradients = tape.gradient(loss_value, model.trainable_variables)
-        gradients = [tf.clip_by_norm(grad, 5) for grad in gradients]
-
-        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        step.assign_add(1)
-
         accuracy.update_state(labels, tf.argmax(logits, axis=-1))
+
+        if is_training:
+            gradients = tape.gradient(loss_value, model.trainable_variables)
+            gradients = [tf.clip_by_norm(grad, 5) for grad in gradients]
+
+            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+            step.assign_add(1)
+
         return loss_value, accuracy.result()
 
     # 6. define training configs
@@ -98,7 +100,9 @@ def train():
             tf.random.set_seed(step.numpy())
             train_y = tf.random.shuffle(train_y)
 
-            nr_batches_train = 200
+            accuracy.reset_states()
+            mean_loss.reset_states()
+
             for t in range(nr_batches_train):
                 start_from = t * batch_size
                 to = (t + 1) * batch_size
@@ -107,7 +111,7 @@ def train():
 
                 mean_loss.update_state(loss_value)
 
-                if t % 10 == 0:
+                if t % 1000 == 0:
                     print(f"{step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
                     save_path = train_manager.save()
                     print(f"Checkpoint saved: {save_path}")
@@ -128,13 +132,15 @@ def train():
                 start_from = t * batch_size
                 to = (t + 1) * batch_size
                 features, labels = test_x[start_from:to], test_y[start_from:to]
-                logits = model(features)
-                loss_value = loss(labels, logits)
-                accuracy.update_state(labels, tf.argmax(logits, -1))
+                loss_value, accuracy_value = train_step(features, labels, is_training=False)
                 mean_loss.update_state(loss_value)
 
-            tf.summary.scalar('val_accuracy', accuracy.result(), step=step.numpy())
-            tf.summary.scalar('val_loss', mean_loss.result(), step=step.numpy())
+                if t % 1000 == 0:
+                    tf.summary.scalar('val_accuracy', accuracy_value, step=step.numpy())
+                    tf.summary.scalar('val_loss', mean_loss.result(), step=step.numpy())
+
+                    accuracy.reset_states()
+                    mean_loss.reset_states()
 
             history_val_accuracy = accuracy.result()
             print(f"Testing accuracy: {history_val_accuracy}")
@@ -142,9 +148,6 @@ def train():
                 val_accuracy.assign(history_val_accuracy)
                 save_path = val_manager.save()
                 print(f"Val Checkpoint saved: {save_path} with accuracy {val_accuracy.numpy()}")
-
-            accuracy.reset_states()
-            mean_loss.reset_states()
 
 
 train()
