@@ -1,5 +1,12 @@
 import tensorflow as tf
 from tensorflow.keras.datasets import fashion_mnist
+import os
+
+
+output_dir = 'outputs'
+ckpt_dir_train = os.path.join(output_dir, 'ckpt/train')
+ckpt_dir_dev = os.path.join(output_dir, 'ckpt/dev')
+log_dir = os.path.join(output_dir, 'log')
 
 
 def define_model(n_classes):
@@ -58,7 +65,7 @@ def train():
     step = tf.Variable(1, name='global_step')
     optimizer = tf.optimizers.Adam(1e-3)
     val_accuracy = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
-    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train='./tf_ckpts', ckpt_dir_dev='./tf_ckpts/val')
+    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train=ckpt_dir_train, ckpt_dir_dev=ckpt_dir_dev)
 
     print(f'@zkl start from step {step.numpy()} with val_accuracy {val_accuracy.numpy()}')
 
@@ -92,7 +99,7 @@ def train():
     print(f"Number of batches per epoch: {nr_batches_train}")
 
     # 7. start real training
-    train_summary_writer = tf.summary.create_file_writer('./log/train')
+    train_summary_writer = tf.summary.create_file_writer(log_dir)
     with train_summary_writer.as_default():
         for epoch in range(epochs):
             tf.random.set_seed(step.numpy())
