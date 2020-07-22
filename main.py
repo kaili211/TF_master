@@ -2,9 +2,10 @@ import tensorflow as tf
 from tensorflow.keras.datasets import fashion_mnist
 from config import Config
 import argparse
+import time
 
 
-config = Config(output_dir='outputs', epochs=10, batch_size=32, log_every_step=100)
+config = Config(output_dir='outputs/v2', epochs=10, batch_size=32, log_every_step=100)
 
 
 def define_model(n_classes):
@@ -55,22 +56,22 @@ def main(is_training=False):
 
     # 1. load data
     if is_training:
-        (train_x, train_y), (test_x, test_y) = load_data()
+        (train_x, train_y), (val_x, val_y) = load_data()
     else:
-        (train_x, train_y), (test_x, test_y) = load_data()
+        _, (test_x, test_y) = load_data()
 
     # 2. define model
     n_classes = 10
     model = define_model(n_classes)
 
-    # 3. define loss, step, optimizer, val_accuracy, ckpt
+    # 3. define loss, global_step, optimizer, val_accuracy, ckpt
     loss = tf.losses.SparseCategoricalCrossentropy(from_logits=True)
-    step = tf.Variable(0, name='global_step')
+    global_step = tf.Variable(0, name='global_step')
     optimizer = tf.optimizers.Adam(1e-3)
     val_accuracy = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
-    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train=config.ckpt_dir_train, ckpt_dir_dev=config.ckpt_dir_dev)
+    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, global_step, ckpt_dir_train=config.ckpt_dir_train, ckpt_dir_dev=config.ckpt_dir_dev)
 
-    print(f'@zkl start from step {step.numpy()} with val_accuracy {val_accuracy.numpy()}')
+    print(f'@zkl start from step {global_step.numpy()} with val_accuracy {val_accuracy.numpy()}')
 
     # 4. define metrics
     accuracy = tf.metrics.Accuracy()
@@ -90,7 +91,7 @@ def main(is_training=False):
             gradients = [tf.clip_by_norm(grad, 5) for grad in gradients]
 
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-            step.assign_add(1)
+            global_step.assign_add(1)
 
         return loss_value, accuracy.result()
 
@@ -117,14 +118,15 @@ def main(is_training=False):
     train_summary_writer = tf.summary.create_file_writer(config.log_dir_train)
     dev_summary_writer = tf.summary.create_file_writer(config.log_dir_dev)
     for epoch in range(config.epochs):
-        tf.random.set_seed(step.numpy())
+        tf.random.set_seed(global_step.numpy())
         train_x = tf.random.shuffle(train_x)
-        tf.random.set_seed(step.numpy())
+        tf.random.set_seed(global_step.numpy())
         train_y = tf.random.shuffle(train_y)
 
         accuracy.reset_states()
         mean_loss.reset_states()
 
+        start_time = time.time()
         for t in range(nr_batches_train):
             start_from = t * batch_size
             to = (t + 1) * batch_size
@@ -134,33 +136,36 @@ def main(is_training=False):
             mean_loss.update_state(loss_value)
 
             if t % config.log_every_step == 0:
-                print(f"{step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
+                print(f"{global_step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
                 save_path = train_manager.save()
                 print(f"Checkpoint saved: {save_path}")
 
                 with train_summary_writer.as_default():
-                    tf.summary.image('train_set', features, max_outputs=3, step=step.numpy())
-                    tf.summary.scalar('accuracy', accuracy_value, step=step.numpy())
-                    tf.summary.scalar('loss', mean_loss.result(), step=step.numpy())
+                    tf.summary.image('train_set', features, max_outputs=3, step=global_step.numpy())
+                    tf.summary.scalar('accuracy', accuracy_value, step=global_step.numpy())
+                    tf.summary.scalar('loss', mean_loss.result(), step=global_step.numpy())
 
                 accuracy.reset_states()
                 mean_loss.reset_states()
+
+                print(f'Time: {time.time() - start_time}')
+                start_time = time.time()
 
         print(f"Epoch {epoch} terminated")
 
         accuracy.reset_states()
         mean_loss.reset_states()
-        # Measuring accuracy on the whole testing set at the end of the epoch
-        for t in range(int(test_x.shape[0] / batch_size)):
+        # Measuring accuracy on the whole validation set at the end of the epoch
+        for t in range(int(val_x.shape[0] / batch_size)):
             start_from = t * batch_size
             to = (t + 1) * batch_size
-            features, labels = test_x[start_from:to], test_y[start_from:to]
+            features, labels = val_x[start_from:to], val_y[start_from:to]
             loss_value, accuracy_value = train_step(features, labels, is_training=False)
             mean_loss.update_state(loss_value)
 
         with dev_summary_writer.as_default():
-            tf.summary.scalar('accuracy', accuracy_value, step=step.numpy())
-            tf.summary.scalar('loss', mean_loss.result(), step=step.numpy())
+            tf.summary.scalar('accuracy', accuracy_value, step=global_step.numpy())
+            tf.summary.scalar('loss', mean_loss.result(), step=global_step.numpy())
 
         history_val_accuracy = accuracy.result()
         print(f"Validation accuracy: {history_val_accuracy}, loss: {mean_loss.result()}")

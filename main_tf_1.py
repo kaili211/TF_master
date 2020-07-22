@@ -1,6 +1,13 @@
-import tensorflow as tf
-from tensorflow.keras.datasets import fashion_mnist
+import tensorflow.compat.v1 as tf
 import numpy as np
+from tensorflow.keras.datasets import fashion_mnist
+from config import Config
+import argparse
+import time
+tf.disable_eager_execution()
+
+
+config = Config(output_dir='outputs/v1', epochs=10, batch_size=32, log_every_step=100)
 
 
 def define_cnn(x, n_classes, reuse, is_training):
@@ -10,7 +17,7 @@ def define_cnn(x, n_classes, reuse, is_training):
         conv2 = tf.layers.conv2d(conv1, 63, 3, activation=tf.nn.relu)
         conv2 = tf.layers.max_pooling2d(conv2, 2, 2)
 
-        shape = (-1, conv2.shape[1].value * conv2.shape[2].value * conv2.shape[3].value)
+        shape = (-1, conv2.shape[1] * conv2.shape[2] * conv2.shape[3])
         fc1 = tf.reshape(conv2, shape)
         fc1 = tf.layers.dense(fc1, 1024)
         fc1 = tf.layers.dropout(fc1, rate=0.5, training=is_training)
@@ -20,7 +27,7 @@ def define_cnn(x, n_classes, reuse, is_training):
     return out
 
 
-def prepare_dataset():
+def load_data():
     (train_x, train_y), (test_x, test_y) = fashion_mnist.load_data()
 
     # Scale input in [-1, 1] range
@@ -34,93 +41,161 @@ def prepare_dataset():
     return train_x, train_y, test_x, test_y
 
 
-def train():
+def main(is_training=False):
+    batch_size = config.batch_size
+
+    # 1. load data
+    if is_training:
+        train_x, train_y, val_x, val_y = load_data()
+    else:
+        _, _, test_x, test_y = load_data()
+
+    # 2. define model
     input = tf.placeholder(tf.float32, (None, 28, 28, 1))
     labels = tf.placeholder(tf.int64, (None, ))
+    logits = define_cnn(input, n_classes=10, reuse=False, is_training=True)
 
-    logits = define_cnn(input, 10, reuse=False, is_training=True)
-    loss = tf.losses.sparse_softmax_cross_entropy(labels, logits)
+    # 3. define loss_op, global_step_op, train_op, predictions_op, accuracy_op, val_accuracy_op, saver
+    loss_op = tf.losses.sparse_softmax_cross_entropy(labels, logits)
+    global_step_op = tf.train.get_or_create_global_step()
+    train_op = tf.train.AdamOptimizer().minimize(loss_op, global_step_op)
 
-    global_step = tf.train.get_or_create_global_step()
-    train_op = tf.train.AdamOptimizer().minimize(loss, global_step)
-
-    writer = tf.summary.FileWriter('log/graph_loss', tf.get_default_graph())
-    validation_summary_writer = tf.summary.FileWriter('log/graph_loss/validation')
-
-    predictions = tf.argmax(logits, axis=1)
-    correct_predictions = tf.equal(predictions, labels)
-    accuracy = tf.reduce_mean(
-        tf.cast(correct_predictions, tf.float32), name='accuracy'
+    predictions_op = tf.argmax(logits, axis=1)
+    correct_predictions_op = tf.equal(predictions_op, labels)
+    accuracy_op = tf.reduce_sum(
+        tf.cast(correct_predictions_op, tf.float32), name='accuracy'
     )
-    accuracy_summary = tf.summary.scalar('accuracy', accuracy)
+    # TODO: verify loss and accuracy is correct
+    val_accuracy_op = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
+    saver = tf.train.Saver(max_to_keep=3)
 
-    loss_summary = tf.summary.scalar('loss', loss)
+    # 4. define summary writer
+    train_summary_writer = tf.summary.FileWriter(config.log_dir_train, tf.get_default_graph())
+    validation_summary_writer = tf.summary.FileWriter(config.log_dir_dev, tf.get_default_graph())
+    accuracy_summary_op = tf.summary.scalar('accuracy', accuracy_op)
+    loss_summary_op = tf.summary.scalar('loss', loss_op)
 
-    train_x, train_y, test_x, test_y = prepare_dataset()
+    # 5. start session
+    sess_config = tf.ConfigProto(allow_soft_placement=True)
+    sess_config.gpu_options.allow_growth = True
+    with tf.Session(config=sess_config) as sess:
+        if is_training:
+            latest_ckpt = tf.train.latest_checkpoint(config.ckpt_dir_train)
+        else:
+            latest_ckpt = tf.train.latest_checkpoint(config.ckpt_dir_dev)
 
-    epochs = 10
-    batch_size = 32
-    nr_batches_train = int(train_x.shape[0] / batch_size)
+        if latest_ckpt:
+            saver.restore(sess, latest_ckpt)
+            print(f"Restored from {latest_ckpt}")
+        else:
+            sess.run(tf.global_variables_initializer())
+            print("Initializing from scratch.")
 
-    print(f"Batch size: {batch_size}")
-    print(f"Number of batches per epoch: {nr_batches_train}")
+        if not is_training:
+            loss = 0.0
+            accuracy = 0.0
+            for t in range(int((test_x.shape[0] - 1) / batch_size) + 1):
+                start_from = t * batch_size
+                to = (t + 1) * batch_size
+                loss_val, accuracy_val = sess.run([loss_op, accuracy_op], feed_dict={
+                    input: test_x[start_from: to],
+                    labels: test_y[start_from: to]
+                })
+                loss += loss_val
+                accuracy += accuracy_val
 
-    validation_accuracy = 0
-    saver = tf.train.Saver()
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+            loss /= test_x.shape[0]
+            accuracy /= test_x.shape[0]
+            print(f"Test accuracy: {accuracy}, loss: {loss}")
+            return
 
-        for epoch in range(epochs):
+        # 6. real training
+        nr_batches_train = int(train_x.shape[0] / batch_size)
+        print(f"Number of batches per epoch: {nr_batches_train}")
+        for epoch in range(config.epochs):
+            global_step = sess.run(global_step_op)
+            np.random.seed(global_step)
+            np.random.shuffle(train_x)
+            np.random.seed(global_step)
+            np.random.shuffle(train_y)
+
+            mean_loss = 0.0
+            mean_accuracy = 0.0
+
+            start_time = time.time()
             for t in range(nr_batches_train):
                 start_from = t * batch_size
                 to = (t + 1) * batch_size
 
-                loss_value, _, step = sess.run([loss, train_op, global_step], feed_dict={
+                loss_value, accuracy_value, _ = sess.run([loss_op, accuracy_op, train_op], feed_dict={
                     input: train_x[start_from: to],
                     labels: train_y[start_from: to]
                 })
 
-                if t % 10 == 0:
-                    print(f"{step}: {loss_value}")
+                mean_loss += loss_value
+                mean_accuracy += accuracy_value
 
-            print(f"Epoch {epoch} terminated: measuring metrics and logging summaries")
+                if t % config.log_every_step == 0:
+                    mean_loss /= config.log_every_step
+                    mean_accuracy /= config.log_every_step
 
-            saver.save(sess, 'log/graph_loss/model')
+                    print(f"{global_step}: {mean_loss} - accuracy: {mean_accuracy}")
+                    save_path = saver.save(sess, config.ckpt_dir_train)
+                    print(f"Checkpoint saved: {save_path}")
 
-            start_from = 0
-            to = 128
-            train_accuracy_summary, train_loss_summary = sess.run(
-                [accuracy_summary, loss_summary],
-                feed_dict={
+                    global_step, loss_summary, accuracy_summary = sess.run([global_step_op, loss_summary_op, accuracy_summary_op], feed_dict={
+                        input: train_x[start_from: to],
+                        labels: train_y[start_from: to]
+                    })
+                    train_summary_writer.add_summary(loss_summary, global_step)
+                    train_summary_writer.add_summary(accuracy_summary, global_step)
+
+                    mean_loss = 0.0
+                    mean_accuracy = 0.0
+
+                    print(f'Time: {time.time() - start_time}')
+                    start_time = time.time()
+
+            print(f"Epoch {epoch} terminated")
+
+            # Measuring accuracy on the whole validation set at the end of the epoch
+            loss = 0.0
+            accuracy = 0.0
+            for t in range(int((val_x.shape[0] - 1) / batch_size) + 1):
+                start_from = t * batch_size
+                to = (t + 1) * batch_size
+                loss_val, accuracy_val = sess.run([loss_op, accuracy_op], feed_dict={
+                    input: val_x[start_from: to],
+                    labels: val_y[start_from: to]
+                })
+                loss += loss_val
+                accuracy += accuracy_val
+
+            loss /= val_x.shape[0]
+            accuracy /= val_x.shape[0]
+            print(f"Val accuracy: {accuracy}, loss: {loss}")
+
+            global_step, loss_summary, accuracy_summary = sess.run(
+                [global_step_op, loss_summary_op, accuracy_summary_op], feed_dict={
                     input: train_x[start_from: to],
                     labels: train_y[start_from: to]
-                }
-            )
+                })
+            validation_summary_writer.add_summary(loss_summary, global_step)
+            validation_summary_writer.add_summary(accuracy_summary, global_step)
 
-            validation_accuracy_summary, validation_accuracy_value, validation_loss_summary = sess.run(
-                [accuracy_summary, accuracy, loss_summary],
-                feed_dict={
-                    input: test_x[start_from: to],
-                    labels: test_y[start_from: to]
-                }
-            )
+            print(f"Validation accuracy: {accuracy}, loss: {loss}")
+            if accuracy > sess.run(val_accuracy_op):
+                sess.run(val_accuracy_op.assign(accuracy))
+                save_path = saver.save(sess, config.ckpt_dir_dev)
+                print(f"Val Checkpoint saved: {save_path} with accuracy {accuracy}")
 
-            # save values in TensorBoard
-            writer.add_summary(train_accuracy_summary, step)
-            writer.add_summary(train_loss_summary, step)
-            validation_summary_writer.add_summary(validation_accuracy_summary, step)
-            validation_summary_writer.add_summary(validation_loss_summary, step)
-
-            writer.flush()
-            validation_summary_writer.flush()
-
-            # model selection
-            if validation_accuracy_value > validation_accuracy:
-                print(f'@zkl: a higher validation accuray {validation_accuracy_value} at epoch {epoch}')
-                validation_accuracy = validation_accuracy_value
-                saver.save(sess, 'log/graph_loss/best_model/best')
-
-    writer.close()
+    train_summary_writer.close()
+    validation_summary_writer.close()
 
 
-train()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-t', dest='t', action='store_true')
+    args = parser.parse_args()
+
+    main(args.t)
