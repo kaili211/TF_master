@@ -44,11 +44,12 @@ def define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train, ckpt_dir_d
     train_manager = tf.train.CheckpointManager(ckpt, ckpt_dir_train, max_to_keep=3)
     dev_manager = tf.train.CheckpointManager(ckpt, ckpt_dir_dev, max_to_keep=3)
     if is_training:
-        ckpt.restore(train_manager.latest_checkpoint)
+        latest_checkpoint = train_manager.latest_checkpoint
     else:
-        ckpt.restore(dev_manager.latest_checkpoint)
-    if train_manager.latest_checkpoint:
-        print(f"Restored from {train_manager.latest_checkpoint}")
+        latest_checkpoint = dev_manager.latest_checkpoint
+    ckpt.restore(latest_checkpoint)
+    if latest_checkpoint:
+        print(f"Restored from {latest_checkpoint}")
     else:
         print("Initializing from scratch.")
     return train_manager, dev_manager
