@@ -2,7 +2,7 @@ import os
 
 
 class Config(object):
-    def __init__(self, output_dir, epochs, batch_size, log_every_step, v1=False):
+    def __init__(self, output_dir, epochs, batch_size, log_every_step, v1=False, **kwargs):
         if v1:
             self.ckpt_dir_train = os.path.join(output_dir, 'ckpt_train')
             self.ckpt_dir_dev = os.path.join(output_dir, 'ckpt_dev')
@@ -18,3 +18,6 @@ class Config(object):
         self.epochs = epochs
         self.batch_size = batch_size
         self.log_every_step = log_every_step
+
+        for k, v in kwargs.items():
+            self.__dict__[k] = v
