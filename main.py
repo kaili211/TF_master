@@ -39,11 +39,14 @@ def load_data():
     return (train_x, train_y), (test_x, test_y)
 
 
-def define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train, ckpt_dir_dev):
+def define_ckpt(model, val_accuracy, optimizer, step, ckpt_dir_train, ckpt_dir_dev, is_training):
     ckpt = tf.train.Checkpoint(model=model, val_accuracy=val_accuracy, optimizer=optimizer, step=step)
     train_manager = tf.train.CheckpointManager(ckpt, ckpt_dir_train, max_to_keep=3)
     dev_manager = tf.train.CheckpointManager(ckpt, ckpt_dir_dev, max_to_keep=3)
-    ckpt.restore(train_manager.latest_checkpoint)
+    if is_training:
+        ckpt.restore(train_manager.latest_checkpoint)
+    else:
+        ckpt.restore(dev_manager.latest_checkpoint)
     if train_manager.latest_checkpoint:
         print(f"Restored from {train_manager.latest_checkpoint}")
     else:
@@ -69,7 +72,7 @@ def main(is_training=False):
     global_step = tf.Variable(0, name='global_step')
     optimizer = tf.optimizers.Adam(1e-3)
     val_accuracy = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
-    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, global_step, ckpt_dir_train=config.ckpt_dir_train, ckpt_dir_dev=config.ckpt_dir_dev)
+    train_manager, val_manager = define_ckpt(model, val_accuracy, optimizer, global_step, ckpt_dir_train=config.ckpt_dir_train, ckpt_dir_dev=config.ckpt_dir_dev, is_training=is_training)
 
     print(f'@zkl start from step {global_step.numpy()} with val_accuracy {val_accuracy.numpy()}')
 

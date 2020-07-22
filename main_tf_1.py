@@ -137,11 +137,11 @@ def main(is_training=False):
                 mean_loss += loss_value
                 mean_accuracy += accuracy_value
 
-                if t % config.log_every_step == 0:
+                if t and t % config.log_every_step == 0:
                     mean_loss /= config.log_every_step
                     mean_accuracy /= config.log_every_step
 
-                    print(f"{global_step}: {mean_loss} - accuracy: {mean_accuracy}")
+                    print(f"{global_step}: {mean_loss} - accuracy: {mean_accuracy} - time: {time.time() - start_time}")
                     save_path = saver.save(sess, config.ckpt_dir_train)
                     print(f"Checkpoint saved: {save_path}")
 
@@ -155,7 +155,7 @@ def main(is_training=False):
                     mean_loss = 0.0
                     mean_accuracy = 0.0
 
-                    print(f'Time: {time.time() - start_time}')
+                    print('')
                     start_time = time.time()
 
             print(f"Epoch {epoch} terminated")
@@ -175,7 +175,6 @@ def main(is_training=False):
 
             loss /= val_x.shape[0]
             accuracy /= val_x.shape[0]
-            print(f"Val accuracy: {accuracy}, loss: {loss}")
 
             global_step, loss_summary, accuracy_summary = sess.run(
                 [global_step_op, loss_summary_op, accuracy_summary_op], feed_dict={
