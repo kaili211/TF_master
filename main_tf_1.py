@@ -7,7 +7,7 @@ import time
 tf.disable_eager_execution()
 
 
-config = Config(output_dir='outputs/v1', epochs=10, batch_size=32, log_every_step=100)
+config = Config(output_dir='outputs/v1', epochs=10, batch_size=32, log_every_step=100, v1=True)
 
 
 def define_cnn(x, n_classes, reuse, is_training):
@@ -55,7 +55,7 @@ def main(is_training=False):
     labels = tf.placeholder(tf.int64, (None, ))
     logits = define_cnn(input, n_classes=10, reuse=False, is_training=True)
 
-    # 3. define loss_op, global_step_op, train_op, predictions_op, accuracy_op, val_accuracy_op, saver
+    # 3. define loss_op, global_step_op, train_op, predictions_op, accuracy_op, val_accuracy_op, savers
     loss_op = tf.losses.sparse_softmax_cross_entropy(labels, logits)
     global_step_op = tf.train.get_or_create_global_step()
     train_op = tf.train.AdamOptimizer().minimize(loss_op, global_step_op)
@@ -67,7 +67,8 @@ def main(is_training=False):
     )
     # TODO: verify loss and accuracy is correct
     val_accuracy_op = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
-    saver = tf.train.Saver(max_to_keep=3)
+    train_saver = tf.train.Saver(max_to_keep=3)
+    val_saver = tf.train.Saver(max_to_keep=3)
 
     # 4. define summary writer
     train_summary_writer = tf.summary.FileWriter(config.log_dir_train, tf.get_default_graph())
@@ -81,15 +82,20 @@ def main(is_training=False):
     with tf.Session(config=sess_config) as sess:
         if is_training:
             latest_ckpt = tf.train.latest_checkpoint(config.ckpt_dir_train)
+            if latest_ckpt:
+                train_saver.restore(sess, latest_ckpt)
+                print(f"Restored from {latest_ckpt}")
+            else:
+                sess.run(tf.global_variables_initializer())
+                print("Initializing from scratch.")
         else:
             latest_ckpt = tf.train.latest_checkpoint(config.ckpt_dir_dev)
-
-        if latest_ckpt:
-            saver.restore(sess, latest_ckpt)
-            print(f"Restored from {latest_ckpt}")
-        else:
-            sess.run(tf.global_variables_initializer())
-            print("Initializing from scratch.")
+            if latest_ckpt:
+                val_saver.restore(sess, latest_ckpt)
+                print(f"Restored from {latest_ckpt}")
+            else:
+                sess.run(tf.global_variables_initializer())
+                print("Initializing from scratch.")
 
         print(f'@zkl start from step {sess.run(global_step_op)} with val_accuracy {sess.run(val_accuracy_op)}')
 
@@ -141,14 +147,15 @@ def main(is_training=False):
                     mean_loss /= config.log_every_step
                     mean_accuracy /= config.log_every_step
 
-                    print(f"{global_step}: {mean_loss} - accuracy: {mean_accuracy} - time: {time.time() - start_time}")
-                    save_path = saver.save(sess, config.ckpt_dir_train)
-                    print(f"Checkpoint saved: {save_path}")
-
                     global_step, loss_summary, accuracy_summary = sess.run([global_step_op, loss_summary_op, accuracy_summary_op], feed_dict={
                         input: train_x[start_from: to],
                         labels: train_y[start_from: to]
                     })
+
+                    print(f"{global_step}: {mean_loss} - accuracy: {mean_accuracy} - time: {time.time() - start_time}")
+                    save_path = train_saver.save(sess, config.ckpt_train, global_step=global_step)
+                    print(f"Checkpoint saved: {save_path}")
+
                     train_summary_writer.add_summary(loss_summary, global_step)
                     train_summary_writer.add_summary(accuracy_summary, global_step)
 
@@ -186,8 +193,9 @@ def main(is_training=False):
 
             print(f"Validation accuracy: {accuracy}, loss: {loss}")
             if accuracy > sess.run(val_accuracy_op):
-                sess.run(val_accuracy_op.assign(accuracy))
-                save_path = saver.save(sess, config.ckpt_dir_dev)
+                assign_op = val_accuracy_op.assign(accuracy)
+                sess.run(assign_op)
+                save_path = val_saver.save(sess, config.ckpt_dev, global_step=global_step)
                 print(f"Val Checkpoint saved: {save_path} with accuracy {accuracy}")
 
     train_summary_writer.close()

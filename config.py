@@ -2,9 +2,16 @@ import os
 
 
 class Config(object):
-    def __init__(self, output_dir, epochs, batch_size, log_every_step):
-        self.ckpt_dir_train = os.path.join(output_dir, 'ckpt/train')
-        self.ckpt_dir_dev = os.path.join(output_dir, 'ckpt/dev')
+    def __init__(self, output_dir, epochs, batch_size, log_every_step, v1=False):
+        if v1:
+            self.ckpt_dir_train = os.path.join(output_dir, 'ckpt_train')
+            self.ckpt_dir_dev = os.path.join(output_dir, 'ckpt_dev')
+            self.ckpt_train = os.path.join(self.ckpt_dir_train, 'ckpt')
+            self.ckpt_dev = os.path.join(self.ckpt_dir_dev, 'ckpt')
+        else:
+            self.ckpt_dir_train = os.path.join(output_dir, 'ckpt/train')
+            self.ckpt_dir_dev = os.path.join(output_dir, 'ckpt/dev')
+
         self.log_dir_train = os.path.join(output_dir, 'log/train')
         self.log_dir_dev = os.path.join(output_dir, 'log/dev')
 
