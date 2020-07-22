@@ -65,7 +65,7 @@ def main(is_training=False):
     accuracy_op = tf.reduce_sum(
         tf.cast(correct_predictions_op, tf.float32), name='accuracy'
     )
-    # TODO: verify loss and accuracy is correct
+
     val_accuracy_op = tf.Variable(0.0, name='val_accuracy', dtype=tf.float32)
     train_saver = tf.train.Saver(max_to_keep=3)
     val_saver = tf.train.Saver(max_to_keep=3)
@@ -144,8 +144,8 @@ def main(is_training=False):
                 mean_accuracy += accuracy_value
 
                 if t and t % config.log_every_step == 0:
-                    mean_loss /= config.log_every_step
-                    mean_accuracy /= config.log_every_step
+                    mean_loss /= config.log_every_step * config.batch_size
+                    mean_accuracy /= config.log_every_step * config.batch_size
 
                     global_step, loss_summary, accuracy_summary = sess.run([global_step_op, loss_summary_op, accuracy_summary_op], feed_dict={
                         input: train_x[start_from: to],
