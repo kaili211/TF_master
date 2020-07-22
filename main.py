@@ -136,7 +136,7 @@ def main(is_training=False):
             mean_loss.update_state(loss_value)
 
             if t % config.log_every_step == 0:
-                print(f"{global_step.numpy()}: {loss_value} - accuracy: {accuracy_value}")
+                print(f"{global_step.numpy()}: {loss_value} - accuracy: {accuracy_value} - time: {time.time() - start_time}")
                 save_path = train_manager.save()
                 print(f"Checkpoint saved: {save_path}")
 
@@ -148,7 +148,7 @@ def main(is_training=False):
                 accuracy.reset_states()
                 mean_loss.reset_states()
 
-                print(f'Time: {time.time() - start_time}')
+                print('')
                 start_time = time.time()
 
         print(f"Epoch {epoch} terminated")

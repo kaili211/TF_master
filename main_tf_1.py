@@ -91,6 +91,8 @@ def main(is_training=False):
             sess.run(tf.global_variables_initializer())
             print("Initializing from scratch.")
 
+        print(f'@zkl start from step {sess.run(global_step_op)} with val_accuracy {sess.run(val_accuracy_op)}')
+
         if not is_training:
             loss = 0.0
             accuracy = 0.0
