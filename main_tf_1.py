@@ -4,6 +4,7 @@ from tensorflow.keras.datasets import fashion_mnist
 from config import Config
 import argparse
 import time
+from tqdm import tqdm
 tf.disable_eager_execution()
 
 
@@ -102,7 +103,7 @@ def main(is_training=False):
         if not is_training:
             loss = 0.0
             accuracy = 0.0
-            for t in range(int((test_x.shape[0] - 1) / batch_size) + 1):
+            for t in tqdm(range(int((test_x.shape[0] - 1) / batch_size) + 1)):
                 start_from = t * batch_size
                 to = (t + 1) * batch_size
                 loss_val, accuracy_val = sess.run([loss_op, accuracy_op], feed_dict={
@@ -170,7 +171,7 @@ def main(is_training=False):
             # Measuring accuracy on the whole validation set at the end of the epoch
             loss = 0.0
             accuracy = 0.0
-            for t in range(int((val_x.shape[0] - 1) / batch_size) + 1):
+            for t in tqdm(range(int((val_x.shape[0] - 1) / batch_size) + 1)):
                 start_from = t * batch_size
                 to = (t + 1) * batch_size
                 loss_val, accuracy_val = sess.run([loss_op, accuracy_op], feed_dict={
